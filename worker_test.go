@@ -9,6 +9,10 @@ import (
 	"testing"
 )
 
+func init() {
+	log.SetOutput(ioutil.Discard)
+}
+
 func TestWorkerWorkOne(t *testing.T) {
 	c := openTestClient(t)
 	defer truncateAndClose(c.pool)
@@ -136,7 +140,7 @@ func TestWorkerWorkReturnsError(t *testing.T) {
 	}
 }
 
-func TestWorkerWorkPanics(t *testing.T) {
+func TestWorkerWorkRescuesPanic(t *testing.T) {
 	c := openTestClient(t)
 	defer truncateAndClose(c.pool)
 
@@ -150,19 +154,11 @@ func TestWorkerWorkPanics(t *testing.T) {
 	}
 	w := NewWorker(c, wm)
 
-	didWork := w.WorkOne()
-	if didWork {
-		t.Errorf("want didWork=false when no job was queued")
-	}
-
 	if err := c.Enqueue(&Job{Type: "MyJob"}); err != nil {
 		t.Fatal(err)
 	}
 
-	didWork = w.WorkOne()
-	if !didWork {
-		t.Errorf("want didWork=true")
-	}
+	w.WorkOne()
 	if called != 1 {
 		t.Errorf("want called=1 was: %d", called)
 	}

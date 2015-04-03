@@ -96,6 +96,7 @@ func (w *Worker) WorkOne() (didWork bool) {
 	}
 
 	defer j.Done()
+	defer recoverPanic(j)
 
 	defer w.recoverPanic(j)
 
@@ -103,7 +104,9 @@ func (w *Worker) WorkOne() (didWork bool) {
 
 	wf, ok := w.m[j.Type]
 	if !ok {
-		if err = j.Error(fmt.Sprintf("unknown job type: %q", j.Type)); err != nil {
+		msg := fmt.Sprintf("unknown job type: %q", j.Type)
+		log.Println(msg)
+		if err = j.Error(msg); err != nil {
 			log.Printf("attempting to save error on job %d: %v", j.ID, err)
 		}
 		log.Printf("unknown job type: %q", j.Type)
@@ -171,6 +174,26 @@ func (w *Worker) Shutdown() {
 	w.ch <- struct{}{}
 	w.done = true
 	close(w.ch)
+}
+
+// recoverPanic tries to handle panics in job execution.
+// A stacktrace is stored into Job last_error.
+func recoverPanic(j *Job) {
+	if r := recover(); r != nil {
+		// record an error on the job with panic message and stacktrace
+		stackBuf := make([]byte, 1024)
+		n := runtime.Stack(stackBuf, false)
+
+		buf := &bytes.Buffer{}
+		fmt.Fprintf(buf, "%v\n", r)
+		fmt.Fprintln(buf, string(stackBuf[:n]))
+		fmt.Fprintln(buf, "[...]")
+		stacktrace := buf.String()
+		log.Printf("event=panic job_id=%d job_type=%s\n%s", j.ID, j.Type, stacktrace)
+		if err := j.Error(stacktrace); err != nil {
+			log.Printf("attempting to save error on job %d: %v", j.ID, err)
+		}
+	}
 }
 
 // WorkerPool is a pool of Workers, each working jobs from the queue Queue
